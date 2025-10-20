@@ -227,6 +227,13 @@ def _parse_formula(f):
     if m:
         return PropVar(f)
     
+    # Equality
+    idx = find_main_connective(f, '=')
+    if idx != -1:
+        left = parse_term_expr(f[:idx])
+        right = parse_term_expr(f[idx + 1:])
+        return Eq(left, right)
+
     # Predicates with explicit argument lists
     m = re.fullmatch(r'([A-Z][A-Za-z0-9_]*)\((.*)\)', f)
     if m:
@@ -239,13 +246,6 @@ def _parse_formula(f):
     if m:
         args = tuple(Const(t) if t in Const.names else Var(t) for t in m.group(2))
         return Pred(m.group(1), args)
-
-    # Equality
-    idx = find_main_connective(f, '=')
-    if idx != -1:
-        left = parse_term_expr(f[:idx])
-        right = parse_term_expr(f[idx + 1:])
-        return Eq(left, right)
 
     # Binary connectives
     connectives = [('↔', Iff), ('→', Imp), ('∨', Or), ('∧', And)]

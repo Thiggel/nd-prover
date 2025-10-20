@@ -136,6 +136,11 @@ class TestParseFormula(unittest.TestCase):
         self.assertEqual(denominator, Func('*', (Numeral(Fraction(3, 1)), Const('a'))))
         self.assertIsInstance(numerator, Func)
 
+        equality_with_pred = parse_formula('P(c)=1-P(a)-P(b)')
+        self.assertIsInstance(equality_with_pred, Eq)
+        self.assertEqual(equality_with_pred.left, Func('P', (Const('c'),)))
+        self.assertIsInstance(equality_with_pred.right, Func)
+
 
 class TestMathKernels(unittest.TestCase):
     def test_eval_rational(self):
