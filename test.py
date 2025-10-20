@@ -1,6 +1,8 @@
 import unittest
+from fractions import Fraction
 
 from nd_prover import *
+from nd_prover.mathkernels import MathKernels
 
 
 class TestParseFormula(unittest.TestCase):
@@ -38,14 +40,12 @@ class TestParseFormula(unittest.TestCase):
     def test_not(self):
         self.assertEqual(parse_formula('~A'), Not(PropVar('A')))
         self.assertEqual(parse_formula('¬A'), Not(PropVar('A')))
-        self.assertEqual(parse_formula('-B'), Not(PropVar('B')))
         self.assertEqual(parse_formula('¬Pb'), Not(Pred('P', (Const('b'),))))
 
     def test_and(self):
         self.assertEqual(parse_formula('A and B'), And(PropVar('A'), PropVar('B')))
         self.assertEqual(parse_formula('(A ∧ B)'), And(PropVar('A'), PropVar('B')))
         self.assertEqual(parse_formula('A&B'), And(PropVar('A'), PropVar('B')))
-        self.assertEqual(parse_formula('A*B'), And(PropVar('A'), PropVar('B')))
 
     def test_or(self):
         self.assertEqual(parse_formula('A or B'), Or(PropVar('A'), PropVar('B')))
@@ -114,6 +114,43 @@ class TestParseFormula(unittest.TestCase):
             parse_formula('A∧')
         with self.assertRaises(ParsingError):
             parse_formula('∀APa')
+
+    def test_arithmetic_terms(self):
+        formula = parse_formula('P(a)=1/3')
+        self.assertEqual(
+            formula,
+            Eq(Func('P', (Const('a'),)), Numeral(Fraction(1, 3)))
+        )
+
+        nz_formula = parse_formula('NZ(3*a)')
+        self.assertEqual(
+            nz_formula,
+            Pred('NZ', (Func('*', (Numeral(Fraction(3, 1)), Const('a'))),))
+        )
+
+        complex_eq = parse_formula('(3*a*a-12*a)/(3*a)=a-4')
+        self.assertIsInstance(complex_eq, Eq)
+        self.assertIsInstance(complex_eq.left, Func)
+        self.assertEqual(complex_eq.left.fname, '/')
+        numerator, denominator = complex_eq.left.args
+        self.assertEqual(denominator, Func('*', (Numeral(Fraction(3, 1)), Const('a'))))
+        self.assertIsInstance(numerator, Func)
+
+
+class TestMathKernels(unittest.TestCase):
+    def test_eval_rational(self):
+        eq = parse_formula('1 - 1/3 - 5/12 = 0')
+        value = MathKernels.eval_rational(eq.left)
+        self.assertEqual(value, Numeral(Fraction(1, 4)))
+
+    def test_polynomial_equality(self):
+        eq = parse_formula('3*a*a - 12*a = 3*a*(a - 4)')
+        self.assertTrue(MathKernels.polynomial_equal(eq.left, eq.right))
+
+    def test_cancel_valid(self):
+        fraction_eq = parse_formula('(3*a*(a-4))/(3*a) = a - 4')
+        numerator, denominator = fraction_eq.left.args
+        self.assertTrue(MathKernels.cancel_valid(numerator, denominator, fraction_eq.right))
 
 
 if __name__ == '__main__':
