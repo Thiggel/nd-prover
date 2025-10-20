@@ -231,7 +231,10 @@ class TestErrorReporting(unittest.TestCase):
                 Justification(parse_rule('ALG'), (1, 2)),
             )
 
-        self.assertTrue(str(ctx.exception).startswith('Line 4:'))
+        message = str(ctx.exception)
+        expected_formula = str(parse_formula('P(c) = 1 - P(a) - P(b)'))
+        self.assertTrue(message.startswith('Line 4:'))
+        self.assertIn(expected_formula, message)
 
 if __name__ == '__main__':
     unittest.main()

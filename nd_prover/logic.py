@@ -1021,10 +1021,10 @@ class Subproof(ProofObject):
             scope = self.partition_scope(citations)
             schemes = rule(premises, conclusion=formula, scope=scope)
         except InferenceError as exc:
-            self._raise_with_line(idx, exc)
+            self._raise_with_line(idx, exc, formula)
 
         if not self.match_schemes(formula, schemes):
-            raise InferenceError(f'Line {idx}: Line not justified.')
+            raise InferenceError(f'Line {idx}: Line not justified: {formula}')
         line = Line(idx, formula, justification)
         self.seq.append(line)
     
@@ -1056,10 +1056,15 @@ class Subproof(ProofObject):
         return lines
 
     @staticmethod
-    def _raise_with_line(idx, exc):
+    def _raise_with_line(idx, exc, formula=None):
         msg = str(exc)
-        if not msg.startswith(f'Line {idx}:'):
-            msg = f'Line {idx}: {msg}'
+        prefix = f'Line {idx}:'
+        if not msg.startswith(prefix):
+            msg = f'{prefix} {msg}'
+        if formula is not None:
+            formula_str = str(formula)
+            if formula_str and formula_str not in msg:
+                msg = f'{msg} -- {formula_str}'
         raise type(exc)(msg) from exc
 
 
