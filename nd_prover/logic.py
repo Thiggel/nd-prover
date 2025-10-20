@@ -862,7 +862,7 @@ def _replace_term(term, targets, gen):
         return gen()
     if isinstance(term, Func):
         new_args = tuple(_replace_term(arg, targets, gen) for arg in term.args)
-        if new_args == term.args:
+        if len(new_args) == len(term.args) and all(new is old for new, old in zip(new_args, term.args)):
             return term
         return Func(term.fname, new_args)
     return term
@@ -1007,9 +1007,32 @@ class Subproof(ProofObject):
         partitions.append(current)
         return partitions
 
+    def _reset_metavars(self, obj, seen=None):
+        if seen is None:
+            seen = set()
+        if isinstance(obj, Metavar):
+            obj.value = None
+            return
+        if isinstance(obj, (tuple, list)):
+            for item in obj:
+                self._reset_metavars(item, seen)
+            return
+        if not hasattr(obj, '__dict__'):
+            return
+        obj_id = id(obj)
+        if obj_id in seen:
+            return
+        seen.add(obj_id)
+        for value in obj.__dict__.values():
+            self._reset_metavars(value, seen)
+
     def match_schemes(self, formula, schemes):
         # print(f'Schemes: {', '.join(str(s) for s in schemes)}')
-        return any(formula == s for s in schemes)
+        for scheme in schemes:
+            self._reset_metavars(scheme)
+            if scheme == formula:
+                return True
+        return False
     
     def _add_line_current(self, formula, justification):
         rule, citations = justification.rule, justification.citations

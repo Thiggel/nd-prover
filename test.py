@@ -161,6 +161,31 @@ class TestParseRule(unittest.TestCase):
         self.assertEqual(parse_rule('->E').name, '→E')
 
 
+class TestEqualityElimination(unittest.TestCase):
+    def test_substitution_with_uninterpreted_functions(self):
+        premises = [
+            parse_formula('P(a) = 1/3'),
+            parse_formula('P(b) = 5/12'),
+            parse_formula('P(a) + P(b) + P(c) = 1'),
+        ]
+        conclusion = parse_formula('P(c) = 1/4')
+        proof = Proof(FOL, premises, conclusion)
+
+        proof.add_line(
+            parse_formula('P(c) = 1 - P(a) - P(b)'),
+            Justification(parse_rule('ALG'), (3,)),
+        )
+        proof.add_line(
+            parse_formula('P(c) = 1 - 1/3 - P(b)'),
+            Justification(parse_rule('=E'), (1, 4)),
+        )
+
+        self.assertEqual(
+            proof.proof.seq[-1].formula,
+            parse_formula('P(c) = 1 - 1/3 - P(b)'),
+        )
+
+
 class TestMathKernels(unittest.TestCase):
     def test_eval_rational(self):
         eq = parse_formula('1 - 1/3 - 5/12 = 0')
