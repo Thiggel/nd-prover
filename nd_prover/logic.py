@@ -543,9 +543,24 @@ class FOL(TFL):
 
     @Rules.add('ALG', strict=True)
     def ALG(premises, conclusion, **kwargs):
-        verify_arity(premises, 0)
-        if isinstance(conclusion, Eq) and MathKernels.equal_terms(conclusion.left, conclusion.right):
+        if not isinstance(conclusion, Eq):
+            raise JustificationError('Invalid application of "ALG".')
+
+        if not premises:
+            if MathKernels.polynomial_equal(conclusion.left, conclusion.right):
+                return [conclusion]
+            raise JustificationError('Invalid application of "ALG".')
+
+        if len(premises) != 1:
+            raise JustificationError('Invalid number of citations provided.')
+
+        premise = premises[0]
+        if not premise.is_line() or not isinstance(premise.formula, Eq):
+            raise JustificationError('Invalid application of "ALG".')
+
+        if MathKernels.equations_equivalent(premise.formula, conclusion):
             return [conclusion]
+
         raise JustificationError('Invalid application of "ALG".')
 
     @Rules.add('ARITH', strict=True)

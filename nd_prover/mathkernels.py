@@ -3,7 +3,7 @@ from __future__ import annotations
 from fractions import Fraction
 from typing import Dict, Tuple
 
-from .logic import Const, Func, Numeral, Term, Var
+from .logic import Const, Eq, Func, Numeral, Term, Var
 
 
 Monomial = Tuple[Tuple[str, int], ...]
@@ -35,6 +35,22 @@ class MathKernels:
             return MathKernels._to_poly(left) == MathKernels._to_poly(right)
         except ValueError:
             return MathKernels.equal_terms(left, right)
+
+    @staticmethod
+    def equations_equivalent(first: Eq, second: Eq) -> bool:
+        try:
+            return (
+                MathKernels._equation_poly(first)
+                == MathKernels._equation_poly(second)
+            )
+        except ValueError:
+            return (
+                MathKernels.polynomial_equal(first.left, second.left)
+                and MathKernels.polynomial_equal(first.right, second.right)
+            ) or (
+                MathKernels.polynomial_equal(first.left, second.right)
+                and MathKernels.polynomial_equal(first.right, second.left)
+            )
 
     @staticmethod
     def cancel_valid(numerator: Term, denominator: Term, simplified: Term) -> bool:
@@ -85,7 +101,14 @@ class MathKernels:
                 if denominator == 0:
                     raise ValueError('division by zero')
                 return MathKernels._poly_scale(MathKernels._to_poly(left), Fraction(1, 1) / denominator)
+            case Func():
+                return MathKernels._poly_variable(MathKernels._term_symbol(term))
         raise ValueError('unsupported term for polynomial conversion')
+
+    @staticmethod
+    def _equation_poly(eq: Eq) -> Polynomial:
+        difference = Func('-', (eq.left, eq.right))
+        return MathKernels._to_poly(difference)
 
     @staticmethod
     def _poly_constant(value: Fraction) -> Polynomial:
@@ -94,6 +117,18 @@ class MathKernels:
     @staticmethod
     def _poly_variable(name: str) -> Polynomial:
         return {((name, 1),): Fraction(1)}
+
+    @staticmethod
+    def _term_symbol(term: Term) -> str:
+        match term:
+            case Numeral(value=value):
+                return str(value)
+            case Const(name=name) | Var(name=name):
+                return name
+            case Func(fname=fname, args=args):
+                inner = ','.join(MathKernels._term_symbol(arg) for arg in args)
+                return f'{fname}({inner})' if args else fname
+        return str(term)
 
     @staticmethod
     def _poly_add(left: Polynomial, right: Polynomial) -> Polynomial:

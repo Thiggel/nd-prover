@@ -2,6 +2,7 @@ import unittest
 from fractions import Fraction
 
 from nd_prover import *
+from nd_prover.logic import FOL, Justification, Line, Rules
 from nd_prover.mathkernels import MathKernels
 
 
@@ -167,6 +168,26 @@ class TestMathKernels(unittest.TestCase):
         fraction_eq = parse_formula('(3*a*(a-4))/(3*a) = a - 4')
         numerator, denominator = fraction_eq.left.args
         self.assertTrue(MathKernels.cancel_valid(numerator, denominator, fraction_eq.right))
+
+    def test_equations_equivalent_with_functions(self):
+        original = parse_formula('P(a) + P(b) + P(c) = 1')
+        rearranged = parse_formula('P(c) = 1 - P(a) - P(b)')
+        self.assertTrue(MathKernels.equations_equivalent(original, rearranged))
+
+
+class TestALGRule(unittest.TestCase):
+    def setUp(self):
+        self.eq_line = parse_formula('P(a) + P(b) + P(c) = 1')
+        self.rearranged = parse_formula('P(c) = 1 - P(a) - P(b)')
+
+    def test_alg_accepts_rearrangement_with_citation(self):
+        line = Line(3, self.eq_line, Justification(Rules.PR, ()))
+        result = FOL.ALG([line], self.rearranged)
+        self.assertEqual(result, [self.rearranged])
+
+    def test_alg_accepts_ground_identity_without_citation(self):
+        identity = parse_formula('2/3 + 1/6 = 5/6')
+        self.assertEqual(FOL.ALG([], identity), [identity])
 
 
 if __name__ == '__main__':
