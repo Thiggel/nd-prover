@@ -318,7 +318,7 @@ RULE_ALIASES = {
 def parse_rule(rule):
     rule = ''.join(rule.split())
     rule = RULE_ALIASES.get(rule, rule)
-    if not rule.isupper():
+    if not (rule.isascii() and rule.isalpha() and rule.isupper()):
         rule = Symbols.sub(rule)
     for r in Rules.rules:
         if r.name == rule:

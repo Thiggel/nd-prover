@@ -149,6 +149,9 @@ class TestParseRule(unittest.TestCase):
     def test_ai_alias(self):
         self.assertEqual(parse_rule('AI').name, '∀I')
 
+    def test_arrow_elim_alias(self):
+        self.assertEqual(parse_rule('->E').name, '→E')
+
 
 class TestMathKernels(unittest.TestCase):
     def test_eval_rational(self):
