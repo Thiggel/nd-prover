@@ -190,5 +190,22 @@ class TestALGRule(unittest.TestCase):
         self.assertEqual(FOL.ALG([], identity), [identity])
 
 
+class TestARITHRule(unittest.TestCase):
+    def test_arith_ground_identity(self):
+        conclusion = parse_formula('1 - 1/3 - 5/12 = 1/4')
+        self.assertEqual(FOL.ARITH([], conclusion), [conclusion])
+
+    def test_arith_with_citation(self):
+        cited_eq = parse_formula('P(c) = 1 - 1/3 - 5/12')
+        conclusion = parse_formula('P(c) = 1/4')
+        line = Line(7, cited_eq, Justification(Rules.PR, ()))
+        self.assertEqual(FOL.ARITH([line], conclusion), [conclusion])
+
+    def test_arith_with_citation_symmetric(self):
+        cited_eq = parse_formula('1 - 1/3 - 5/12 = P(c)')
+        conclusion = parse_formula('1/4 = P(c)')
+        line = Line(8, cited_eq, Justification(Rules.PR, ()))
+        self.assertEqual(FOL.ARITH([line], conclusion), [conclusion])
+
 if __name__ == '__main__':
     unittest.main()

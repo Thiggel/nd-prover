@@ -565,24 +565,41 @@ class FOL(TFL):
 
     @Rules.add('ARITH', strict=True)
     def ARITH(premises, conclusion, **kwargs):
-        verify_arity(premises, 0)
         if not isinstance(conclusion, Eq):
             raise JustificationError('Invalid application of "ARITH".')
 
-        left, right = conclusion.left, conclusion.right
-        try:
-            value = MathKernels.eval_rational(left)
-            if MathKernels.equal_terms(right, value) and conclusion == Eq(left, value):
-                return [conclusion]
-        except ValueError:
-            pass
+        if len(premises) == 0:
+            try:
+                left_val = MathKernels.eval_rational(conclusion.left)
+                right_val = MathKernels.eval_rational(conclusion.right)
+            except ValueError:
+                raise JustificationError('Invalid application of "ARITH".')
 
-        try:
-            value = MathKernels.eval_rational(right)
-            if MathKernels.equal_terms(left, value) and conclusion == Eq(value, right):
+            if left_val == right_val:
                 return [conclusion]
-        except ValueError:
-            pass
+            raise JustificationError('Invalid application of "ARITH".')
+
+        if len(premises) != 1:
+            raise JustificationError('Invalid number of citations provided.')
+
+        premise = premises[0]
+        if not premise.is_line() or not isinstance(premise.formula, Eq):
+            raise JustificationError('Invalid application of "ARITH".')
+
+        cited = premise.formula
+        for arithmetic_side, other_side in ((cited.left, cited.right), (cited.right, cited.left)):
+            try:
+                value = MathKernels.eval_rational(arithmetic_side)
+            except ValueError:
+                continue
+
+            if (MathKernels.polynomial_equal(conclusion.left, other_side)
+                    and MathKernels.polynomial_equal(conclusion.right, value)):
+                return [conclusion]
+
+            if (MathKernels.polynomial_equal(conclusion.right, other_side)
+                    and MathKernels.polynomial_equal(conclusion.left, value)):
+                return [conclusion]
 
         raise JustificationError('Invalid application of "ARITH".')
 
