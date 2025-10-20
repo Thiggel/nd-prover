@@ -142,6 +142,14 @@ class TestParseFormula(unittest.TestCase):
         self.assertIsInstance(equality_with_pred.right, Func)
 
 
+class TestParseRule(unittest.TestCase):
+    def test_alg_rule(self):
+        self.assertEqual(parse_rule('ALG').name, 'ALG')
+
+    def test_ai_alias(self):
+        self.assertEqual(parse_rule('AI').name, '∀I')
+
+
 class TestMathKernels(unittest.TestCase):
     def test_eval_rational(self):
         eq = parse_formula('1 - 1/3 - 5/12 = 0')

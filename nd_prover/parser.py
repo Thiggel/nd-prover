@@ -316,8 +316,10 @@ RULE_ALIASES = {
 
 
 def parse_rule(rule):
-    rule = ''.join(Symbols.sub(rule).split())
+    rule = ''.join(rule.split())
     rule = RULE_ALIASES.get(rule, rule)
+    if not rule.isupper():
+        rule = Symbols.sub(rule)
     for r in Rules.rules:
         if r.name == rule:
             return r
