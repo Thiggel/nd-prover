@@ -2,7 +2,14 @@ import unittest
 from fractions import Fraction
 
 from nd_prover import *
-from nd_prover.logic import FOL, Justification, Line, Rules
+from nd_prover.logic import (
+    FOL,
+    Justification,
+    JustificationError,
+    Line,
+    Proof,
+    Rules,
+)
 from nd_prover.mathkernels import MathKernels
 
 
@@ -206,6 +213,25 @@ class TestARITHRule(unittest.TestCase):
         conclusion = parse_formula('1/4 = P(c)')
         line = Line(8, cited_eq, Justification(Rules.PR, ()))
         self.assertEqual(FOL.ARITH([line], conclusion), [conclusion])
+
+
+class TestErrorReporting(unittest.TestCase):
+    def test_error_messages_include_line_number(self):
+        premises = [
+            parse_formula('P(a) = 1/3'),
+            parse_formula('P(b) = 5/12'),
+            parse_formula('P(a) + P(b) + P(c) = 1'),
+        ]
+        conclusion = parse_formula('P(c) = 1/4')
+        proof = Proof(FOL, premises, conclusion)
+
+        with self.assertRaises(JustificationError) as ctx:
+            proof.add_line(
+                parse_formula('P(c) = 1 - P(a) - P(b)'),
+                Justification(parse_rule('ALG'), (1, 2)),
+            )
+
+        self.assertTrue(str(ctx.exception).startswith('Line 4:'))
 
 if __name__ == '__main__':
     unittest.main()

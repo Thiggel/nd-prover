@@ -1014,13 +1014,17 @@ class Subproof(ProofObject):
     def _add_line_current(self, formula, justification):
         rule, citations = justification.rule, justification.citations
         strict = self.is_strict_subproof() and rule not in Rules.strict
-        premises = self.retrieve_citations(citations, strict)
-        scope = self.partition_scope(citations)
-        schemes = rule(premises, conclusion=formula, scope=scope)
+        idx = self.idx[1] + 1
+
+        try:
+            premises = self.retrieve_citations(citations, strict)
+            scope = self.partition_scope(citations)
+            schemes = rule(premises, conclusion=formula, scope=scope)
+        except InferenceError as exc:
+            self._raise_with_line(idx, exc)
 
         if not self.match_schemes(formula, schemes):
-            raise InferenceError('Line not justified.')
-        idx = self.idx[1] + 1
+            raise InferenceError(f'Line {idx}: Line not justified.')
         line = Line(idx, formula, justification)
         self.seq.append(line)
     
@@ -1050,6 +1054,13 @@ class Subproof(ProofObject):
             elif idx != len(seq) - 1:
                 lines.append(('', f'{indent}│', ''))
         return lines
+
+    @staticmethod
+    def _raise_with_line(idx, exc):
+        msg = str(exc)
+        if not msg.startswith(f'Line {idx}:'):
+            msg = f'Line {idx}: {msg}'
+        raise type(exc)(msg) from exc
 
 
 class Proof:
