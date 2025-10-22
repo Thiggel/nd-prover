@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from fractions import Fraction
 from string import ascii_lowercase
 
 
@@ -101,18 +102,60 @@ class Iff(Formula):
 # FOL
 @dataclass(frozen=True)
 class Term:
-    name: str
+    name: str | None = None
 
     names = list(ascii_lowercase)
 
     def __str__(self):
-        return self.name
+        return self.name if self.name is not None else ''
 
 class Const(Term):
     names = [t for t in Term.names if 'a' <= t <= 'r']
 
 class Var(Term):
     names = [t for t in Term.names if 's' <= t <= 'z']
+
+@dataclass(frozen=True, init=False)
+class Numeral(Term):
+    value: Fraction
+
+    def __init__(self, value):
+        object.__setattr__(self, 'value', value)
+        object.__setattr__(self, 'name', str(value))
+
+    def __str__(self):
+        num, den = self.value.numerator, self.value.denominator
+        return f'{num}/{den}' if den != 1 else f'{num}'
+
+
+@dataclass(frozen=True, init=False)
+class Func(Term):
+    fname: str
+    args: tuple[Term, ...]
+
+    def __init__(self, fname, args):
+        object.__setattr__(self, 'fname', fname)
+        object.__setattr__(self, 'args', tuple(args))
+        object.__setattr__(self, 'name', fname)
+
+    def __str__(self):
+        return format_func(self)
+
+
+INFIX_OPERATORS = {'+', '-', '*', '/'}
+
+
+def format_func(func: 'Func') -> str:
+    name = func.fname
+    args = func.args
+    if name in INFIX_OPERATORS and len(args) == 2:
+        left, right = args
+        return f'({left} {name} {right})'
+    if name == '-' and len(args) == 1:
+        return f'(-{args[0]})'
+    joined = ','.join(str(a) for a in args)
+    return f"{name}({joined})"
+
 
 @dataclass(frozen=True)
 class Pred(Formula):
@@ -495,8 +538,126 @@ class FOL(TFL):
                 return [Not(Forall(v, b))]
             case Not(Forall(v, b)):
                 return [Exists(v, Not(b))]
-        
+
         raise JustificationError('Invalid application of "CQ".')
+
+    @Rules.add('ALG', strict=True)
+    def ALG(premises, conclusion, **kwargs):
+        if not isinstance(conclusion, Eq):
+            raise JustificationError('Invalid application of "ALG".')
+
+        if not premises:
+            if MathKernels.polynomial_equal(conclusion.left, conclusion.right):
+                return [conclusion]
+            raise JustificationError('Invalid application of "ALG".')
+
+        if len(premises) != 1:
+            raise JustificationError('Invalid number of citations provided.')
+
+        premise = premises[0]
+        if not premise.is_line() or not isinstance(premise.formula, Eq):
+            raise JustificationError('Invalid application of "ALG".')
+
+        if MathKernels.equations_equivalent(premise.formula, conclusion):
+            return [conclusion]
+
+        raise JustificationError('Invalid application of "ALG".')
+
+    @Rules.add('ARITH', strict=True)
+    def ARITH(premises, conclusion, **kwargs):
+        if not isinstance(conclusion, Eq):
+            raise JustificationError('Invalid application of "ARITH".')
+
+        if len(premises) == 0:
+            try:
+                left_val = MathKernels.eval_rational(conclusion.left)
+                right_val = MathKernels.eval_rational(conclusion.right)
+            except ValueError:
+                raise JustificationError('Invalid application of "ARITH".')
+
+            if left_val == right_val:
+                return [conclusion]
+            raise JustificationError('Invalid application of "ARITH".')
+
+        if len(premises) != 1:
+            raise JustificationError('Invalid number of citations provided.')
+
+        premise = premises[0]
+        if not premise.is_line() or not isinstance(premise.formula, Eq):
+            raise JustificationError('Invalid application of "ARITH".')
+
+        cited = premise.formula
+        for arithmetic_side, other_side in ((cited.left, cited.right), (cited.right, cited.left)):
+            try:
+                value = MathKernels.eval_rational(arithmetic_side)
+            except ValueError:
+                continue
+
+            if (MathKernels.polynomial_equal(conclusion.left, other_side)
+                    and MathKernels.polynomial_equal(conclusion.right, value)):
+                return [conclusion]
+
+            if (MathKernels.polynomial_equal(conclusion.right, other_side)
+                    and MathKernels.polynomial_equal(conclusion.left, value)):
+                return [conclusion]
+
+        raise JustificationError('Invalid application of "ARITH".')
+
+    @Rules.add('FACT', strict=True)
+    def FACT(premises, conclusion, **kwargs):
+        verify_arity(premises, 0)
+        if isinstance(conclusion, Eq) and MathKernels.polynomial_equal(conclusion.left, conclusion.right):
+            return [conclusion]
+        raise JustificationError('Invalid application of "FACT".')
+
+    @Rules.add('CANCEL', strict=True)
+    def CANCEL(premises, conclusion, **kwargs):
+        if len(premises) != 2:
+            raise JustificationError('Invalid number of citations provided.')
+
+        nz_line = None
+        eq_line = None
+        for premise in premises:
+            if not premise.is_line():
+                raise JustificationError('Invalid application of "CANCEL".')
+            formula = premise.formula
+            if isinstance(formula, Pred) and formula.name.upper() == 'NZ' and len(formula.args) == 1:
+                if nz_line is not None:
+                    raise JustificationError('Invalid application of "CANCEL".')
+                nz_line = formula
+            elif isinstance(formula, Eq):
+                if eq_line is not None:
+                    raise JustificationError('Invalid application of "CANCEL".')
+                eq_line = formula
+            else:
+                raise JustificationError('Invalid application of "CANCEL".')
+
+        if nz_line is None or eq_line is None or not isinstance(conclusion, Eq):
+            raise JustificationError('Invalid application of "CANCEL".')
+
+        target_fraction = None
+        simplified = None
+        nz_term = nz_line.args[0]
+
+        for candidate in (eq_line.left, eq_line.right):
+            if candidate == conclusion.left:
+                target_fraction, simplified = candidate, conclusion.right
+                break
+            if candidate == conclusion.right:
+                target_fraction, simplified = candidate, conclusion.left
+                break
+
+        if not isinstance(target_fraction, Func) or target_fraction.fname != '/' or len(target_fraction.args) != 2:
+            raise JustificationError('Invalid application of "CANCEL".')
+
+        numerator, denominator = target_fraction.args
+        if not MathKernels.equal_terms(denominator, nz_term):
+            raise JustificationError('Invalid application of "CANCEL".')
+
+        if MathKernels.cancel_valid(numerator, denominator, simplified):
+            return [conclusion]
+
+        raise JustificationError('Invalid application of "CANCEL".')
 
 
 class MLK(TFL):
@@ -637,30 +798,74 @@ def is_ml_sentence(formula):
             return False
 
 
+def _visit_term(term, collector):
+    collector(term)
+    if isinstance(term, Func):
+        for arg in term.args:
+            _visit_term(arg, collector)
+
+
 def terms(formula, free):
+    result = set()
+
+    def add_term(term):
+        result.add(term)
+
     match formula:
         case Pred(_, args):
-            return set(args)
+            for arg in args:
+                _visit_term(arg, add_term)
         case Eq(a, b):
-            return {a, b}
+            _visit_term(a, add_term)
+            _visit_term(b, add_term)
         case Not(a) | Box(a) | Dia(a):
-            return terms(a, free)
+            result |= terms(a, free)
         case And(a, b) | Or(a, b) | Imp(a, b) | Iff(a, b):
-            return terms(a, free) | terms(b, free)
+            result |= terms(a, free)
+            result |= terms(b, free)
         case Forall(v, a) | Exists(v, a):
-            return terms(a, free) - {v} if free else terms(a, free)
-        case _:
-            return set()
+            inner_terms = terms(a, free)
+            if free:
+                inner_terms -= {v}
+            result |= inner_terms
+    return result
 
 
 def constants(formula):
     all_terms = terms(formula, free=False)
-    return {t for t in all_terms if t.name in Const.names}
+    constants_set = set()
+
+    def collect(term):
+        if isinstance(term, Const):
+            constants_set.add(term)
+
+    for term in all_terms:
+        _visit_term(term, collect)
+    return constants_set
 
 
 def free_vars(formula):
     free_terms = terms(formula, free=True)
-    return {t for t in free_terms if t.name in Var.names}
+    vars_set = set()
+
+    def collect(term):
+        if isinstance(term, Var):
+            vars_set.add(term)
+
+    for term in free_terms:
+        _visit_term(term, collect)
+    return vars_set
+
+
+def _replace_term(term, targets, gen):
+    if term in targets:
+        return gen()
+    if isinstance(term, Func):
+        new_args = tuple(_replace_term(arg, targets, gen) for arg in term.args)
+        if len(new_args) == len(term.args) and all(new is old for new, old in zip(new_args, term.args)):
+            return term
+        return Func(term.fname, new_args)
+    return term
 
 
 def sub_terms(formula, terms, gen, ignore=lambda v: False):
@@ -677,13 +882,15 @@ def sub_terms(formula, terms, gen, ignore=lambda v: False):
             a = a if ignore(v) else sub_terms(a, terms - {v}, gen, ignore)
             return type(formula)(v, a)
         case Pred(s, args):
-            args = tuple(gen() if arg in terms else arg for arg in args)
+            args = tuple(_replace_term(arg, terms, gen) for arg in args)
             return Pred(s, args)
         case Eq(a, b):
-            a = gen() if a in terms else a
-            b = gen() if b in terms else b
+            a = _replace_term(a, terms, gen)
+            b = _replace_term(b, terms, gen)
             return Eq(a, b)
 
+
+from .mathkernels import MathKernels
 
 class ProofObject:
     def is_line(self):
@@ -800,20 +1007,47 @@ class Subproof(ProofObject):
         partitions.append(current)
         return partitions
 
+    def _reset_metavars(self, obj, seen=None):
+        if seen is None:
+            seen = set()
+        if isinstance(obj, Metavar):
+            obj.value = None
+            return
+        if isinstance(obj, (tuple, list)):
+            for item in obj:
+                self._reset_metavars(item, seen)
+            return
+        if not hasattr(obj, '__dict__'):
+            return
+        obj_id = id(obj)
+        if obj_id in seen:
+            return
+        seen.add(obj_id)
+        for value in obj.__dict__.values():
+            self._reset_metavars(value, seen)
+
     def match_schemes(self, formula, schemes):
         # print(f'Schemes: {', '.join(str(s) for s in schemes)}')
-        return any(formula == s for s in schemes)
+        for scheme in schemes:
+            self._reset_metavars(scheme)
+            if scheme == formula:
+                return True
+        return False
     
     def _add_line_current(self, formula, justification):
         rule, citations = justification.rule, justification.citations
         strict = self.is_strict_subproof() and rule not in Rules.strict
-        premises = self.retrieve_citations(citations, strict)
-        scope = self.partition_scope(citations)
-        schemes = rule(premises, conclusion=formula, scope=scope)
+        idx = self.idx[1] + 1
+
+        try:
+            premises = self.retrieve_citations(citations, strict)
+            scope = self.partition_scope(citations)
+            schemes = rule(premises, conclusion=formula, scope=scope)
+        except InferenceError as exc:
+            self._raise_with_line(idx, exc, formula)
 
         if not self.match_schemes(formula, schemes):
-            raise InferenceError('Line not justified.')
-        idx = self.idx[1] + 1
+            raise InferenceError(f'Line {idx}: Line not justified: {formula}')
         line = Line(idx, formula, justification)
         self.seq.append(line)
     
@@ -843,6 +1077,18 @@ class Subproof(ProofObject):
             elif idx != len(seq) - 1:
                 lines.append(('', f'{indent}│', ''))
         return lines
+
+    @staticmethod
+    def _raise_with_line(idx, exc, formula=None):
+        msg = str(exc)
+        prefix = f'Line {idx}:'
+        if not msg.startswith(prefix):
+            msg = f'{prefix} {msg}'
+        if formula is not None:
+            formula_str = str(formula)
+            if formula_str and formula_str not in msg:
+                msg = f'{msg} -- {formula_str}'
+        raise type(exc)(msg) from exc
 
 
 class Proof:

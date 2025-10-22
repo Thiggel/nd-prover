@@ -1,4 +1,5 @@
 import re
+from fractions import Fraction
 
 from .logic import *
 
@@ -12,14 +13,12 @@ class Symbols:
         'not': '¬',
         '~': '¬',
         '∼': '¬',
-        '-': '¬',
         '−': '¬',
         'and': '∧',
         '^': '∧',
         '&': '∧',
         '.': '∧',
         '·': '∧',
-        '*': '∧',
         'or': '∨',
         'iff': '↔',
         '≡': '↔',
@@ -94,8 +93,126 @@ def find_main_connective(s, symbol):
     return -1
 
 
-def parse_term(t):
-    return Const(t) if t in Const.names else Var(t)
+TERM_TOKEN_RE = re.compile(r"\s*([A-Za-z_][A-Za-z_0-9]*|\d+/\d+|\d+|[()+\-*/,])")
+
+
+def tokenize_term(s):
+    tokens = []
+    idx = 0
+    length = len(s)
+    while idx < length:
+        match = TERM_TOKEN_RE.match(s, idx)
+        if not match:
+            raise ParsingError(f'Invalid term syntax near "{s[idx:]}".')
+        token = match.group(1)
+        tokens.append(token)
+        idx = match.end()
+    tokens.append('EOF')
+    return tokens
+
+
+def parse_numeral(token):
+    if '/' in token:
+        numerator, denominator = token.split('/')
+        return Numeral(Fraction(int(numerator), int(denominator)))
+    return Numeral(Fraction(int(token), 1))
+
+
+class TermParser:
+    def __init__(self, tokens):
+        self.tokens = tokens
+        self.pos = 0
+
+    def peek(self):
+        return self.tokens[self.pos]
+
+    def consume(self, expected=None):
+        token = self.tokens[self.pos]
+        if expected and token != expected:
+            raise ParsingError(f'Expected "{expected}" but found "{token}".')
+        self.pos += 1
+        return token
+
+    def parse(self):
+        term = self.parse_sum()
+        if self.peek() != 'EOF':
+            raise ParsingError('Unexpected token in term.')
+        return term
+
+    def parse_sum(self):
+        term = self.parse_product()
+        while self.peek() in ('+', '-'):
+            op = self.consume()
+            right = self.parse_product()
+            term = Func(op, (term, right))
+        return term
+
+    def parse_product(self):
+        term = self.parse_unary()
+        while self.peek() in ('*', '/'):
+            op = self.consume()
+            right = self.parse_unary()
+            term = Func(op, (term, right))
+        return term
+
+    def parse_unary(self):
+        if self.peek() == '-':
+            self.consume('-')
+            expr = self.parse_unary()
+            if isinstance(expr, Numeral):
+                return Numeral(-expr.value)
+            return Func('-', (expr,))
+        return self.parse_atom()
+
+    def parse_atom(self):
+        token = self.consume()
+        if token == '(':
+            expr = self.parse_sum()
+            self.consume(')')
+            return expr
+        if token.isdigit() or '/' in token:
+            return parse_numeral(token)
+        ident = token
+        if len(ident) == 1 and ident in Const.names:
+            return Const(ident)
+        if len(ident) == 1 and ident in Var.names:
+            return Var(ident)
+        if self.peek() == '(':
+            self.consume('(')
+            args = []
+            if self.peek() != ')':
+                while True:
+                    args.append(self.parse_sum())
+                    if self.peek() != ',':
+                        break
+                    self.consume(',')
+            self.consume(')')
+            return Func(ident, tuple(args))
+        raise ParsingError(f'Unknown term symbol: "{ident}".')
+
+
+def parse_term_expr(s):
+    tokens = tokenize_term(s)
+    parser = TermParser(tokens)
+    return parser.parse()
+
+
+def split_term_args(s):
+    if not s:
+        return []
+    depth = 0
+    start = 0
+    args = []
+    for i, c in enumerate(s):
+        if c == '(':
+            depth += 1
+        elif c == ')':
+            depth -= 1
+        elif c == ',' and depth == 0:
+            args.append(s[start:i])
+            start = i + 1
+    args.append(s[start:])
+    return [arg for arg in (a.strip() for a in args) if arg]
 
 
 def _parse_formula(f):
@@ -110,18 +227,25 @@ def _parse_formula(f):
     if m:
         return PropVar(f)
     
-    # Predicates
+    # Equality
+    idx = find_main_connective(f, '=')
+    if idx != -1:
+        left = parse_term_expr(f[:idx])
+        right = parse_term_expr(f[idx + 1:])
+        return Eq(left, right)
+
+    # Predicates with explicit argument lists
+    m = re.fullmatch(r'([A-Z][A-Za-z0-9_]*)\((.*)\)', f)
+    if m:
+        name, arg_str = m.groups()
+        args = tuple(parse_term_expr(arg) for arg in split_term_args(arg_str))
+        return Pred(name, args)
+
+    # Legacy predicates
     m = re.fullmatch(r'([A-Z])([a-z]+)', f)
     if m:
-        args = tuple(parse_term(t) for t in m.group(2))
+        args = tuple(Const(t) if t in Const.names else Var(t) for t in m.group(2))
         return Pred(m.group(1), args)
-
-    # Equality
-    m = re.fullmatch(r'([a-z])=([a-z])', f)
-    if m:
-        left = parse_term(m.group(1))
-        right = parse_term(m.group(2))
-        return Eq(left, right)
 
     # Binary connectives
     connectives = [('↔', Iff), ('→', Imp), ('∨', Or), ('∧', And)]
@@ -169,8 +293,33 @@ def parse_assumption(a):
     return _parse_formula(a)
 
 
+RULE_ALIASES = {
+    'AI': '∀I',
+    'AE': '∀E',
+    'EI': '∃I',
+    'EE': '∃E',
+    'CI': '∧I',
+    'CE': '∧E',
+    'VI': '∨I',
+    'VE': '∨E',
+    'II': '→I',
+    'IE': '→E',
+    'BI': '↔I',
+    'BE': '↔E',
+    'NI': '¬I',
+    'NE': '¬E',
+    'ALG': 'ALG',
+    'ARITH': 'ARITH',
+    'CANCEL': 'CANCEL',
+    'FACT': 'FACT',
+}
+
+
 def parse_rule(rule):
-    rule = ''.join(Symbols.sub(rule).split())
+    rule = ''.join(rule.split())
+    rule = RULE_ALIASES.get(rule, rule)
+    if not (rule.isascii() and rule.isalpha() and rule.isupper()):
+        rule = Symbols.sub(rule)
     for r in Rules.rules:
         if r.name == rule:
             return r
