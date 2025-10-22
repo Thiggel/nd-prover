@@ -211,6 +211,23 @@ class TestProofValidation(unittest.TestCase):
         )
         return proof
 
+    def _build_factor_cancel_prefix(self) -> Proof:
+        conclusion = parse_formula('(3*a*a - 12*a)/(3*a) = a - 4')
+        proof = Proof(FOL, [parse_formula('NZ(3*a)')], conclusion)
+        proof.add_line(
+            parse_formula('3*a*a - 12*a = 3*a*(a - 4)'),
+            Justification(parse_rule('FACT'), ()),
+        )
+        proof.add_line(
+            parse_formula('(3*a*a - 12*a)/(3*a) = (3*a*a - 12*a)/(3*a)'),
+            Justification(parse_rule('=I'), ()),
+        )
+        proof.add_line(
+            parse_formula('(3*a*(a - 4))/(3*a) = (3*a*a - 12*a)/(3*a)'),
+            Justification(parse_rule('=E'), (2, 3)),
+        )
+        return proof
+
     def test_spinner_proof_valid(self):
         proof = self._build_spinner_prefix()
         proof.add_line(
@@ -228,6 +245,14 @@ class TestProofValidation(unittest.TestCase):
                 Justification(parse_rule('ARITH'), ()),
             )
 
+    def test_spinner_proof_arith_requires_matching_citation(self):
+        proof = self._build_spinner_prefix()
+        with self.assertRaises(JustificationError):
+            proof.add_line(
+                self.spinner_conclusion,
+                Justification(parse_rule('ARITH'), (1,)),
+            )
+
     def test_spinner_proof_arith_wrong_value(self):
         proof = self._build_spinner_prefix()
         with self.assertRaises(JustificationError):
@@ -236,12 +261,31 @@ class TestProofValidation(unittest.TestCase):
                 Justification(parse_rule('ARITH'), (6,)),
             )
 
+    def test_spinner_proof_symmetric_arith_valid(self):
+        proof = self._build_spinner_prefix()
+        proof.add_line(
+            parse_formula('1/4 = P(c)'),
+            Justification(parse_rule('ARITH'), (6,)),
+        )
+        self.assertEqual(
+            proof.proof.seq[-1].formula,
+            parse_formula('1/4 = P(c)'),
+        )
+
     def test_alg_rejects_invalid_rewrite(self):
         proof = Proof(FOL, self.spinner_premises, self.spinner_conclusion)
         with self.assertRaises(JustificationError):
             proof.add_line(
                 parse_formula('P(c) = 1 - P(a)'),
                 Justification(parse_rule('ALG'), (3,)),
+            )
+
+    def test_alg_rejects_incompatible_citation(self):
+        proof = Proof(FOL, self.spinner_premises, self.spinner_conclusion)
+        with self.assertRaises(JustificationError):
+            proof.add_line(
+                parse_formula('P(c) = 1 - P(a) - P(b) + P(b)'),
+                Justification(parse_rule('ALG'), (1,)),
             )
 
     def test_cancel_requires_nz_premise(self):
@@ -283,6 +327,121 @@ class TestProofValidation(unittest.TestCase):
         )
         self.assertEqual(proof.proof.seq[-1].formula, conclusion)
         self.assertTrue(proof.is_complete())
+
+    def test_complex_factor_cancel_proof_valid(self):
+        proof = self._build_factor_cancel_prefix()
+        conclusion = parse_formula('(3*a*a - 12*a)/(3*a) = a - 4')
+        proof.add_line(
+            parse_formula('(3*a*(a - 4))/(3*a) = a - 4'),
+            Justification(parse_rule('CANCEL'), (1, 4)),
+        )
+        proof.add_line(
+            conclusion,
+            Justification(parse_rule('=E'), (2, 5)),
+        )
+        self.assertTrue(proof.is_complete())
+        self.assertEqual(proof.proof.seq[-1].formula, conclusion)
+
+    def test_complex_factor_cancel_wrong_nz(self):
+        conclusion = parse_formula('(3*a*a - 12*a)/(3*a) = a - 4')
+        proof = Proof(FOL, [parse_formula('NZ(a)')], conclusion)
+        proof.add_line(
+            parse_formula('3*a*a - 12*a = 3*a*(a - 4)'),
+            Justification(parse_rule('FACT'), ()),
+        )
+        proof.add_line(
+            parse_formula('(3*a*a - 12*a)/(3*a) = (3*a*a - 12*a)/(3*a)'),
+            Justification(parse_rule('=I'), ()),
+        )
+        proof.add_line(
+            parse_formula('(3*a*(a - 4))/(3*a) = (3*a*a - 12*a)/(3*a)'),
+            Justification(parse_rule('=E'), (2, 3)),
+        )
+        with self.assertRaises(JustificationError):
+            proof.add_line(
+                conclusion,
+                Justification(parse_rule('CANCEL'), (1, 4)),
+            )
+
+    def test_complex_factor_cancel_wrong_simplification(self):
+        proof = self._build_factor_cancel_prefix()
+        with self.assertRaises(JustificationError):
+            proof.add_line(
+                parse_formula('(3*a*a - 12*a)/(3*a) = a - 5'),
+                Justification(parse_rule('CANCEL'), (1, 4)),
+            )
+
+    def test_probability_sum_proof_valid(self):
+        premises = [
+            parse_formula('P(a) = 2/5'),
+            parse_formula('Q(a) = 3/10'),
+            parse_formula('P(a) + Q(a) = R(a)'),
+        ]
+        conclusion = parse_formula('R(a) = 7/10')
+        proof = Proof(FOL, premises, conclusion)
+        proof.add_line(
+            parse_formula('R(a) = R(a)'),
+            Justification(parse_rule('=I'), ()),
+        )
+        proof.add_line(
+            parse_formula('R(a) = P(a) + Q(a)'),
+            Justification(parse_rule('=E'), (3, 4)),
+        )
+        proof.add_line(
+            parse_formula('R(a) = 2/5 + Q(a)'),
+            Justification(parse_rule('=E'), (1, 5)),
+        )
+        proof.add_line(
+            parse_formula('R(a) = 2/5 + 3/10'),
+            Justification(parse_rule('=E'), (2, 6)),
+        )
+        proof.add_line(
+            conclusion,
+            Justification(parse_rule('ARITH'), (7,)),
+        )
+        self.assertTrue(proof.is_complete())
+
+    def test_probability_sum_wrong_arith_value(self):
+        premises = [
+            parse_formula('P(a) = 2/5'),
+            parse_formula('Q(a) = 3/10'),
+            parse_formula('P(a) + Q(a) = R(a)'),
+        ]
+        proof = Proof(FOL, premises, parse_formula('R(a) = 1/2'))
+        proof.add_line(
+            parse_formula('R(a) = R(a)'),
+            Justification(parse_rule('=I'), ()),
+        )
+        proof.add_line(
+            parse_formula('R(a) = P(a) + Q(a)'),
+            Justification(parse_rule('=E'), (3, 4)),
+        )
+        proof.add_line(
+            parse_formula('R(a) = 2/5 + Q(a)'),
+            Justification(parse_rule('=E'), (1, 5)),
+        )
+        proof.add_line(
+            parse_formula('R(a) = 2/5 + 3/10'),
+            Justification(parse_rule('=E'), (2, 6)),
+        )
+        with self.assertRaises(JustificationError):
+            proof.add_line(
+                parse_formula('R(a) = 1/2'),
+                Justification(parse_rule('ARITH'), (7,)),
+            )
+
+    def test_probability_sum_wrong_alg_citation(self):
+        premises = [
+            parse_formula('P(a) = 2/5'),
+            parse_formula('Q(a) = 3/10'),
+            parse_formula('P(a) + Q(a) = R(a)'),
+        ]
+        proof = Proof(FOL, premises, parse_formula('R(a) = P(a) + Q(a)'))
+        with self.assertRaises(JustificationError):
+            proof.add_line(
+                parse_formula('R(a) = P(a) + Q(a)'),
+                Justification(parse_rule('ALG'), (1,)),
+            )
 
 
 class TestMathKernels(unittest.TestCase):
