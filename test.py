@@ -186,6 +186,105 @@ class TestEqualityElimination(unittest.TestCase):
         )
 
 
+class TestProofValidation(unittest.TestCase):
+    def setUp(self):
+        self.spinner_premises = [
+            parse_formula('P(a) = 1/3'),
+            parse_formula('P(b) = 5/12'),
+            parse_formula('P(a) + P(b) + P(c) = 1'),
+        ]
+        self.spinner_conclusion = parse_formula('P(c) = 1/4')
+
+    def _build_spinner_prefix(self) -> Proof:
+        proof = Proof(FOL, self.spinner_premises, self.spinner_conclusion)
+        proof.add_line(
+            parse_formula('P(c) = 1 - P(a) - P(b)'),
+            Justification(parse_rule('ALG'), (3,)),
+        )
+        proof.add_line(
+            parse_formula('P(c) = 1 - 1/3 - P(b)'),
+            Justification(parse_rule('=E'), (1, 4)),
+        )
+        proof.add_line(
+            parse_formula('P(c) = 1 - 1/3 - 5/12'),
+            Justification(parse_rule('=E'), (2, 5)),
+        )
+        return proof
+
+    def test_spinner_proof_valid(self):
+        proof = self._build_spinner_prefix()
+        proof.add_line(
+            self.spinner_conclusion,
+            Justification(parse_rule('ARITH'), (6,)),
+        )
+        self.assertEqual(proof.proof.seq[-1].formula, self.spinner_conclusion)
+        self.assertTrue(proof.is_complete())
+
+    def test_spinner_proof_arith_requires_citation(self):
+        proof = self._build_spinner_prefix()
+        with self.assertRaises(JustificationError):
+            proof.add_line(
+                self.spinner_conclusion,
+                Justification(parse_rule('ARITH'), ()),
+            )
+
+    def test_spinner_proof_arith_wrong_value(self):
+        proof = self._build_spinner_prefix()
+        with self.assertRaises(JustificationError):
+            proof.add_line(
+                parse_formula('P(c) = 2/3'),
+                Justification(parse_rule('ARITH'), (6,)),
+            )
+
+    def test_alg_rejects_invalid_rewrite(self):
+        proof = Proof(FOL, self.spinner_premises, self.spinner_conclusion)
+        with self.assertRaises(JustificationError):
+            proof.add_line(
+                parse_formula('P(c) = 1 - P(a)'),
+                Justification(parse_rule('ALG'), (3,)),
+            )
+
+    def test_cancel_requires_nz_premise(self):
+        conclusion = parse_formula('(5*2)/5 = 2')
+        proof = Proof(FOL, [], conclusion)
+        proof.add_line(
+            parse_formula('(5*2)/5 = 10/5'),
+            Justification(parse_rule('ARITH'), ()),
+        )
+        with self.assertRaises(JustificationError):
+            proof.add_line(
+                conclusion,
+                Justification(parse_rule('CANCEL'), (1,)),
+            )
+
+    def test_cancel_denominator_mismatch(self):
+        conclusion = parse_formula('(5*2)/5 = 2')
+        proof = Proof(FOL, [parse_formula('NZ(5)')], conclusion)
+        proof.add_line(
+            parse_formula('(5*2)/4 = 10/4'),
+            Justification(parse_rule('ARITH'), ()),
+        )
+        with self.assertRaises(JustificationError):
+            proof.add_line(
+                conclusion,
+                Justification(parse_rule('CANCEL'), (1, 2)),
+            )
+
+    def test_cancel_proof_valid(self):
+        conclusion = parse_formula('(5*2)/5 = 2')
+        proof = Proof(FOL, [parse_formula('NZ(5)')], conclusion)
+        proof.add_line(
+            parse_formula('(5*2)/5 = 10/5'),
+            Justification(parse_rule('ARITH'), ()),
+        )
+        proof.add_line(
+            conclusion,
+            Justification(parse_rule('CANCEL'), (1, 2)),
+        )
+        self.assertEqual(proof.proof.seq[-1].formula, conclusion)
+        self.assertTrue(proof.is_complete())
+
+
 class TestMathKernels(unittest.TestCase):
     def test_eval_rational(self):
         eq = parse_formula('1 - 1/3 - 5/12 = 0')
