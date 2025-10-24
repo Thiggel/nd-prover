@@ -39,10 +39,9 @@ class MathKernels:
     @staticmethod
     def equations_equivalent(first: Eq, second: Eq) -> bool:
         try:
-            return (
-                MathKernels._equation_poly(first)
-                == MathKernels._equation_poly(second)
-            )
+            first_poly = MathKernels._normalize_poly(MathKernels._equation_poly(first))
+            second_poly = MathKernels._normalize_poly(MathKernels._equation_poly(second))
+            return first_poly == second_poly
         except ValueError:
             return (
                 MathKernels.polynomial_equal(first.left, second.left)
@@ -109,6 +108,18 @@ class MathKernels:
     def _equation_poly(eq: Eq) -> Polynomial:
         difference = Func('-', (eq.left, eq.right))
         return MathKernels._to_poly(difference)
+
+    @staticmethod
+    def _normalize_poly(poly: Polynomial) -> Polynomial:
+        cleaned = MathKernels._poly_clean(poly)
+        if cleaned == {(): Fraction(0)}:
+            return cleaned
+
+        lead_monomial = min(cleaned)
+        lead_coeff = cleaned[lead_monomial]
+        factor = Fraction(1, 1) / lead_coeff
+        normalized = {mon: coeff * factor for mon, coeff in cleaned.items()}
+        return MathKernels._poly_clean(normalized)
 
     @staticmethod
     def _poly_constant(value: Fraction) -> Polynomial:
