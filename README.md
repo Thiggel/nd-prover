@@ -1,3 +1,5 @@
+Forked from [daniyal1249/nd-prover](https://github.com/daniyal1249/nd-prover)
+
 # ND-Prover
 
 An interactive Fitch-style natural deduction proof checker, implemented in Python.
