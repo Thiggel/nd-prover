@@ -41,10 +41,16 @@ class Symbols:
         '<>': '♢',
     }
 
+    word_like_keys = {'not', 'and', 'or', 'iff', 'implies', 'forall', 'exists', 'falsum', 'box', 'dia'}
     keys = sorted(symbols, key=len, reverse=True)
-    patterns = [re.escape(k) for k in keys]
-    patterns.append(r'A(?=[a-zA-Z])')  # Forall
-    patterns.append(r'E(?=[a-zA-Z])')  # Exists
+    patterns = []
+    for key in keys:
+        if key in word_like_keys:
+            patterns.append(rf'\b{re.escape(key)}\b')
+        else:
+            patterns.append(re.escape(key))
+    patterns.append(r'(?<![A-Za-z0-9_])A(?=[s-z](?:[A-Z(¬∀∃□♢]|$))')  # Forall shorthand: Ax(...)
+    patterns.append(r'(?<![A-Za-z0-9_])E(?=[s-z](?:[A-Z(¬∀∃□♢]|$))')  # Exists shorthand: Ex(...)
     pattern = '|'.join(patterns)
     regex = re.compile(pattern)
 
@@ -93,7 +99,7 @@ def find_main_connective(s, symbol):
     return -1
 
 
-TERM_TOKEN_RE = re.compile(r"\s*([A-Za-z_][A-Za-z_0-9]*|\d+/\d+|\d+|[()+\-*/,])")
+TERM_TOKEN_RE = re.compile(r"\s*([A-Za-z_][A-Za-z_0-9-]*|\d+/\d+|\d+|[()+\-*/,])")
 
 
 def tokenize_term(s):
@@ -188,7 +194,7 @@ class TermParser:
                     self.consume(',')
             self.consume(')')
             return Func(ident, tuple(args))
-        raise ParsingError(f'Unknown term symbol: "{ident}".')
+        return Const(ident)
 
 
 def parse_term_expr(s):
@@ -234,19 +240,6 @@ def _parse_formula(f):
         right = parse_term_expr(f[idx + 1:])
         return Eq(left, right)
 
-    # Predicates with explicit argument lists
-    m = re.fullmatch(r'([A-Z][A-Za-z0-9_]*)\((.*)\)', f)
-    if m:
-        name, arg_str = m.groups()
-        args = tuple(parse_term_expr(arg) for arg in split_term_args(arg_str))
-        return Pred(name, args)
-
-    # Legacy predicates
-    m = re.fullmatch(r'([A-Z])([a-z]+)', f)
-    if m:
-        args = tuple(Const(t) if t in Const.names else Var(t) for t in m.group(2))
-        return Pred(m.group(1), args)
-
     # Binary connectives
     connectives = [('↔', Iff), ('→', Imp), ('∨', Or), ('∧', And)]
 
@@ -263,14 +256,26 @@ def _parse_formula(f):
         return Not(_parse_formula(f[1:]))
     
     # Quantifiers
-    v1, v2 = Var.names[0], Var.names[-1]
-    m = re.match(f'(∀|∃)([{v1}-{v2}])', f)
+    m = re.match(r'(∀|∃)([A-Za-z_][A-Za-z_0-9-]*)', f)
     if m:
         var = Var(m.group(2))
-        inner = _parse_formula(f[2:])
+        inner = _parse_formula(f[len(m.group(0)):])
         if m.group(1) == '∀':
             return Forall(var, inner)
         return Exists(var, inner)
+
+    # Predicates with explicit argument lists
+    m = re.fullmatch(r'([A-Z][A-Za-z0-9_]*)\((.*)\)', f)
+    if m:
+        name, arg_str = m.groups()
+        args = tuple(parse_term_expr(arg) for arg in split_term_args(arg_str))
+        return Pred(name, args)
+
+    # Legacy predicates
+    m = re.fullmatch(r'([A-Z])([a-z]+)', f)
+    if m:
+        args = tuple(Const(t) if t in Const.names else Var(t) for t in m.group(2))
+        return Pred(m.group(1), args)
 
     # Modal operators
     if f.startswith('□'):
